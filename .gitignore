@@ -8,3 +8,27 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Clinical dataset (MIMIC-IV derived, not redistributable)
+Ds/
+
+# Image dataset (too large for git)
+Dataset/
+
+# Trained model weights
+*.pth
+*.pkl
+*.joblib
+*.keras
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Misc artifacts
+*.html
+uv.lock

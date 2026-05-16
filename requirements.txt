@@ -1,13 +1,30 @@
-tensorflow>=2.13.0
+# HepSense — Production Dependencies
+# ====================================
+# Core ML
+torch>=2.0.0
+torchvision>=0.15.0
+xgboost
+scikit-learn
+joblib
+
+# Data
 numpy
 pandas
-scikit-learn
+scipy
+
+# Vision XAI
+grad-cam
+Pillow
+
+# Visualization
 matplotlib
 seaborn
-flask
-scipy
-joblib
+
+# Clinical pipeline (temporal)
+tsfresh
 imbalanced-learn
-xgboost
-catboost
-lightgbm
+optuna
+shap
+
+# Deployment
+streamlit
