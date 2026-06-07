@@ -1,10 +1,56 @@
-# Python-generated files
+# =========================
+# Python / Environment
+# =========================
 __pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
+*.py[cod]
+.venv/
+.vscode/
+.idea/
 
-# Virtual environments
-.venv
+# =========================
+# Frontend Node Environment
+# =========================
+frontend/node_modules/
+frontend/dist/
+frontend/.env*
+
+# =========================
+# Datasets & Raw Data
+# =========================
+ILPD/
+Ultrasonic_dataset/
+Dataset/
+Ds/
+*.csv
+*.parquet
+
+# =========================
+# Machine Learning Models
+# =========================
+# Do not commit heavy model weights
+*.pth
+*.joblib
+*.pkl
+*.keras
+
+# =========================
+# Generated Logs & Outputs
+# =========================
+train_logs.txt
+vision_logs.txt
+*.log
+
+# =========================
+# Generated Visualizations
+# =========================
+# Ignore PNGs and HTMLs in the root folder only (keep frontend assets)
+/*.png
+/*.html
+/*.pdf
+
+# =========================
+# System Files
+# =========================
+.DS_Store
+Thumbs.db
+node_modules/ 
