@@ -1,13 +1,11 @@
 """
-HepSense -- Streamlit Clinical Dashboard (v2)
-===============================================
-Two inputs in the main area:
-  LEFT  : Upload ultrasound image  -> DANN Vision Expert (F-stage + Grad-CAM)
-  RIGHT : Upload EHR CSV           -> t-MELD Temporal Expert (calibrated risk)
+HepSense -- Clinical Decision Support Dashboard
+================================================
+Clinician-friendly interface for liver disease risk assessment.
+Combines ultrasound imaging analysis with longitudinal lab trends
+to stratify patients by decompensation risk.
 
-Both feed into the Rule-Based Integration Engine for a unified recommendation.
-
-Run:  python -m streamlit run streamlit_app.py
+Usage:  streamlit run streamlit_app.py
 """
 
 import os
@@ -22,10 +20,10 @@ from PIL import Image
 
 # -- Page config --
 st.set_page_config(
-    page_title="HepSense CDSS",
-    page_icon="H",
+    page_title="HepSense - Liver Risk Assessment System",
+    page_icon="\u2695",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 # -- HepSense modules --
@@ -35,57 +33,86 @@ from HepSense_Vision import (
 )
 
 # =============================================================================
-# CSS
+# CSS  -- Clinical-grade styling
 # =============================================================================
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
-    html, body, [class*="st-"] { font-family: 'Inter', sans-serif; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    html, body, [class*="st-"] { font-family: 'Inter', -apple-system, sans-serif; }
 
-    .main-header {
-        background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f766e 100%);
-        padding: 40px 30px; border-radius: 16px; margin-bottom: 30px;
-        color: white; text-align: center;
+    /* -- Top header bar -- */
+    .clinical-header {
+        background: #0a2942; border-bottom: 4px solid #1a7f6e;
+        padding: 14px 28px; margin-bottom: 20px; color: white;
+        display: flex; justify-content: space-between; align-items: center;
     }
-    .main-header h1 { font-size: 42px; font-weight: 800; margin: 0; letter-spacing: -1px; }
-    .main-header p  { font-size: 16px; opacity: 0.85; margin-top: 8px; }
-
-    .severity-card {
-        padding: 30px; border-radius: 16px; text-align: center;
-        margin: 20px 0; box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+    .clinical-header .title { font-size: 20px; font-weight: 600; }
+    .clinical-header .sub  { font-size: 12px; opacity: 0.7; }
+    .clinical-header .badge {
+        background: #1a7f6e; padding: 4px 14px; border-radius: 4px;
+        font-size: 11px; font-weight: 500; letter-spacing: 0.3px;
     }
-    .severity-CRITICAL       { background: linear-gradient(135deg,#7f1d1d,#991b1b); color:#fecaca; border:2px solid #f87171; }
-    .severity-HIGH           { background: linear-gradient(135deg,#78350f,#92400e); color:#fde68a; border:2px solid #fbbf24; }
-    .severity-MODERATE       { background: linear-gradient(135deg,#713f12,#854d0e); color:#fef3c7; border:2px solid #f59e0b; }
-    .severity-LOW-MODERATE   { background: linear-gradient(135deg,#365314,#3f6212); color:#d9f99d; border:2px solid #84cc16; }
-    .severity-LOW            { background: linear-gradient(135deg,#064e3b,#065f46); color:#a7f3d0; border:2px solid #34d399; }
-    .severity-INDETERMINATE  { background: linear-gradient(135deg,#1e293b,#334155); color:#cbd5e1; border:2px solid #64748b; }
 
-    .severity-label { font-size: 14px; text-transform: uppercase; letter-spacing: 3px; font-weight: 600; opacity: 0.8; }
-    .severity-level { font-size: 48px; font-weight: 800; margin: 10px 0; }
-
-    .expert-card {
-        background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
-        padding: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    /* -- Sidebar patient info -- */
+    .patient-card {
+        background: #f0f4f8; border: 1px solid #dce3ed; border-radius: 6px;
+        padding: 14px 16px; margin-bottom: 16px;
     }
-    .expert-card h3    { margin: 0 0 6px 0; font-size: 14px; color: #64748b; text-transform: uppercase; letter-spacing: 2px; }
-    .expert-card .value { font-size: 36px; font-weight: 800; color: #0f172a; }
-    .expert-card .sub   { font-size: 13px; color: #94a3b8; margin-top: 4px; }
+    .patient-card .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+    .patient-card .value { font-size: 14px; font-weight: 600; color: #0f172a; }
 
+    /* -- Severity alert banner -- */
+    .alert-banner {
+        padding: 16px 24px; border-radius: 6px; margin: 12px 0;
+        border-left: 6px solid; font-size: 15px; line-height: 1.5;
+    }
+    .alert-CRITICAL       { background: #fef2f2; border-color: #dc2626; color: #7f1d1d; }
+    .alert-HIGH           { background: #fff7ed; border-color: #f97316; color: #7c2d12; }
+    .alert-MODERATE       { background: #fefce8; border-color: #eab308; color: #713f12; }
+    .alert-LOW-MODERATE   { background: #f0fdf4; border-color: #84cc16; color: #3f6212; }
+    .alert-LOW            { background: #f0fdfa; border-color: #14b8a6; color: #134e4a; }
+    .alert-INDETERMINATE  { background: #f8fafc; border-color: #94a3b8; color: #334155; }
+
+    .alert-banner .alert-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+    .alert-banner .alert-level { font-size: 26px; font-weight: 700; margin: 2px 0; }
+
+    /* -- Metric cards -- */
+    .metric-card {
+        background: white; border: 1px solid #e5e9f0; border-radius: 6px;
+        padding: 16px; text-align: center;
+    }
+    .metric-card h3    { margin: 0 0 2px 0; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
+    .metric-card .value { font-size: 28px; font-weight: 700; color: #0f172a; }
+    .metric-card .sub   { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+
+    /* -- Recommendation box -- */
     .rec-box {
-        background: #f1f5f9; border-left: 6px solid #3b82f6;
-        padding: 20px 24px; border-radius: 0 12px 12px 0;
-        font-size: 16px; line-height: 1.7; color: #1e293b; margin: 16px 0;
+        background: #f0f4f8; border: 1px solid #dce3ed; border-radius: 6px;
+        padding: 14px 18px; font-size: 14px; line-height: 1.6; color: #1e293b; margin: 10px 0;
     }
+
+    /* -- Action items -- */
     .action-item {
-        background: white; border: 1px solid #e2e8f0; border-radius: 8px;
-        padding: 10px 16px; margin: 6px 0; font-size: 14px; color: #334155;
+        background: white; border: 1px solid #e5e9f0; border-radius: 4px;
+        padding: 8px 14px; margin: 4px 0; font-size: 13px; color: #334155;
     }
+
+    /* -- Input sections -- */
     .input-section {
-        background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
-        padding: 24px; min-height: 320px;
+        background: white; border: 1px solid #e5e9f0; border-radius: 6px;
+        padding: 18px; min-height: 260px;
     }
-    .input-section h3 { margin-top: 0; }
+    .input-section h3 { margin: 0 0 4px 0; font-size: 14px; color: #0f172a; }
+    .input-section .hint { font-size: 12px; color: #94a3b8; margin-bottom: 12px; }
+
+    /* -- Section divider -- */
+    .section-label {
+        font-size: 13px; font-weight: 600; color: #0f172a;
+        border-bottom: 1px solid #e5e9f0; padding-bottom: 6px; margin: 18px 0 10px 0;
+    }
+
+    .st-emotion-cache-1y4p8pa { padding: 1.5rem 1rem; }
+    .st-emotion-cache-16txtl3 { padding: 1rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -93,9 +120,12 @@ st.markdown("""
 # Header
 # =============================================================================
 st.markdown("""
-<div class="main-header">
-    <h1>HepSense CDSS</h1>
-    <p>Multi-Modal Liver Cirrhosis Staging -- DANN Vision + t-MELD Temporal Risk Engine</p>
+<div class="clinical-header">
+    <div>
+        <div class="title">HepSense &mdash; Liver Risk Assessment</div>
+        <div class="sub">Clinical Decision Support &bull; Risk Stratification for Cirrhotic Patients</div>
+    </div>
+    <div class="badge">For Professional Use</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -119,8 +149,7 @@ def load_tmeld_artifacts():
             le = joblib.load('le_production.pkl')
         except FileNotFoundError:
             le = None
-        static_feats = ['age', 'gender']
-        ts_cols = [c for c in selected_cols if c not in static_feats]
+        ts_cols = [c for c in selected_cols if '__' in c]
         kind_to_fc = from_columns(ts_cols)
         return model, selected_cols, le, kind_to_fc
     except Exception as e:
@@ -131,74 +160,62 @@ vision_model = load_vision_model()
 tmeld_model, selected_cols, le, kind_to_fc = load_tmeld_artifacts()
 
 # =============================================================================
-# INPUTS -- Two columns: Image (left) + EHR (right)
+# SIDEBAR -- Patient Information
 # =============================================================================
-col_img, col_ehr = st.columns(2)
+with st.sidebar:
+    st.markdown("### Patient Information")
+    st.markdown(f"**Patient ID**: P-{np.random.randint(10000,99999)}")
+    c1, c2 = st.columns(2)
+    with c1:
+        age_val = st.number_input("Age", 18, 120, 55)
+    with c2:
+        if le is not None:
+            gender_val = st.selectbox("Sex", le.classes_)
+        else:
+            gender_val = st.selectbox("Sex", ["M", "F"])
 
-uploaded_image = None
-with col_img:
-    st.markdown('<div class="input-section">', unsafe_allow_html=True)
-    st.markdown("### Upload Ultrasound Image")
-    st.caption("Liver ultrasound for F-stage classification via DANN EfficientNet-B0")
+    st.divider()
+
+    st.markdown("### Input Data")
+
+    st.markdown("**Ultrasound Image**")
     uploaded_image = st.file_uploader(
-        "Drag & drop or browse", type=["jpg", "jpeg", "png", "bmp", "tiff"],
-        key="img_upload",
+        "Upload liver ultrasound", type=["jpg", "jpeg", "png", "bmp", "tiff"],
+        label_visibility="collapsed", key="img_upload",
     )
     if uploaded_image:
         preview = Image.open(uploaded_image)
-        st.image(preview, use_container_width=True, caption="Uploaded ultrasound")
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.image(preview, use_container_width=True)
 
-df_ehr = None
-with col_ehr:
-    st.markdown('<div class="input-section">', unsafe_allow_html=True)
-    st.markdown("### Upload EHR Labs (t-MELD)")
-    st.caption("Longitudinal blood panel CSV for temporal risk prediction")
+    st.markdown("**Lab Results (CSV)**")
+    ehr_file = st.file_uploader(
+        "Upload EHR CSV", type=["csv"],
+        label_visibility="collapsed",
+        help="CSV with columns: charttime, lab_test_name, valuenum",
+        key="ehr_upload",
+    )
+    if ehr_file:
+        try:
+            df_ehr = pd.read_csv(ehr_file)
+            st.caption(f"{len(df_ehr)} rows loaded")
+        except Exception as e:
+            st.error(f"CSV error: {e}")
 
-    # Demographics
-    c1, c2 = st.columns(2)
-    with c1:
-        age_val = st.number_input("Patient Age", 18, 120, 55)
-    with c2:
-        if le is not None:
-            gender_val = st.selectbox("Gender", le.classes_)
-        else:
-            gender_val = st.selectbox("Gender", ["M", "F"])
-
-    tab_upload, tab_paste = st.tabs(["CSV Upload", "Quick Paste"])
-
-    with tab_upload:
-        ehr_file = st.file_uploader(
-            "Upload EHR CSV",
-            type=["csv"],
-            help="CSV with columns: charttime, lab_test_name or test columns",
-            key="ehr_upload",
-        )
-        if ehr_file:
-            try:
-                df_ehr = pd.read_csv(ehr_file)
-                st.success(f"Loaded {len(df_ehr)} rows")
-            except Exception as e:
-                st.error(f"CSV parse error: {e}")
-
-    with tab_paste:
+    # Quick paste fallback
+    if not ehr_file:
         pasted = st.text_area(
-            "Paste EHR data (CSV format)", height=120,
-            placeholder='charttime,Bilirubin Total,INR(PT),Creatinine\n2023-10-01,1.2,1.1,0.9\n2023-10-05,2.1,1.4,1.2',
+            "Or paste CSV data", height=80, label_visibility="collapsed",
+            placeholder='charttime,Bilirubin Total,INR(PT),Creatinine\n2023-10-01,1.2,1.1,0.9',
         )
-        if pasted and not ehr_file:
+        if pasted:
             try:
                 sep = ',' if ',' in pasted.split('\n')[0] else '\t'
                 df_ehr = pd.read_csv(io.StringIO(pasted), sep=sep)
-                st.success(f"Parsed {len(df_ehr)} rows")
+                st.caption(f"{len(df_ehr)} rows parsed")
             except Exception:
-                st.error("Could not parse pasted data.")
+                st.error("Parse failed.")
 
-    if df_ehr is not None:
-        st.dataframe(df_ehr.head(5), use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-st.markdown("---")
+    st.caption("This tool provides risk estimates to aid clinical decision-making. All results should be reviewed by a qualified hepatologist.")
 
 # =============================================================================
 # t-MELD Inference Function
@@ -211,7 +228,7 @@ TARGET_TESTS = [
 
 def run_tmeld_pipeline(df_input, age, gender):
     """
-    Run the full t-MELD pipeline: preprocess EHR -> tsfresh extraction -> calibrated prediction.
+    Process lab data and compute decompensation risk score.
     Returns (probability, risk_label) or raises on error.
     """
     from tsfresh import extract_features
@@ -294,13 +311,13 @@ def run_tmeld_pipeline(df_input, age, gender):
     else:
         label = "HIGH"
 
-    return prob, label
+    return prob, label, X_final
 
 # =============================================================================
 # Integration Engine
 # =============================================================================
 def integration_engine(stage, stage_conf, risk_label, risk_prob):
-    """Rule-based fusion of Vision stage + t-MELD risk."""
+    """Combine fibrosis stage and decompensation risk into unified recommendation."""
 
     if stage == "F4" and risk_label == "HIGH":
         return {
@@ -381,7 +398,10 @@ def integration_engine(stage, stage_conf, risk_label, risk_prob):
 # =============================================================================
 # RUN BUTTON
 # =============================================================================
-run_btn = st.button("Run HepSense CDSS", type="primary", use_container_width=True)
+run_btn = st.button("Run Risk Assessment", type="primary", use_container_width=True)
+
+# Run indicator
+placeholder = st.empty()
 
 if run_btn:
     if uploaded_image is None and df_ehr is None:
@@ -399,7 +419,7 @@ if run_btn:
             tmp.write(uploaded_image.getvalue())
             tmp_path = tmp.name
 
-        with st.spinner("Running Vision Expert (DANN EfficientNet-B0)..."):
+        with st.spinner("Analyzing ultrasound image..."):
             vis_result = predict_ultrasound(tmp_path, vision_model)
             vision_stage = vis_result["predicted_stage"]
             vision_conf = vis_result["confidence"]
@@ -415,9 +435,9 @@ if run_btn:
     tmeld_ran = False
 
     if df_ehr is not None and tmeld_model is not None:
-        with st.spinner("Running t-MELD Temporal Risk Engine (tsfresh + XGBoost)..."):
+        with st.spinner("Analyzing lab trends and calculating risk..."):
             try:
-                tmeld_prob, tmeld_label = run_tmeld_pipeline(df_ehr, age_val, gender_val)
+                tmeld_prob, tmeld_label, X_final = run_tmeld_pipeline(df_ehr, age_val, gender_val)
                 tmeld_ran = True
             except Exception as e:
                 st.error(f"t-MELD pipeline error: {e}")
@@ -435,85 +455,148 @@ if run_btn:
             tmeld_prob,
         )
 
-        # Severity banner
+        # -- CLINICAL ALERT BANNER --
         css_class = rec["severity"].replace(" ", "-")
         st.markdown(f"""
-        <div class="severity-card severity-{css_class}">
-            <div class="severity-label">HepSense Combined Assessment</div>
-            <div class="severity-level">{rec['severity']}</div>
+        <div class="alert-banner alert-{css_class}">
+            <div class="alert-title">HepSense Risk Classification</div>
+            <div class="alert-level">{rec['severity']}</div>
+            <div style="font-size:13px;margin-top:4px;">{rec['recommendation']}</div>
         </div>
         """, unsafe_allow_html=True)
 
-        # Expert cards
+        st.markdown('<div class="section-label">CLINICAL MEASURES</div>', unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         with c1:
             st.markdown(f"""
-            <div class="expert-card">
-                <h3>Vision Expert (DANN)</h3>
+            <div class="metric-card">
+                <h3>Fibrosis Stage</h3>
                 <div class="value">{vision_stage}</div>
-                <div class="sub">{'Confidence: ' + f'{vision_conf:.1%}' if vision_stage != 'N/A' else 'No image uploaded'}</div>
+                <div class="sub">{'Model confidence: ' + f'{vision_conf:.1%}' if vision_stage != 'N/A' else 'No image uploaded'}</div>
             </div>
             """, unsafe_allow_html=True)
         with c2:
             st.markdown(f"""
-            <div class="expert-card">
-                <h3>t-MELD Temporal Risk</h3>
+            <div class="metric-card">
+                <h3>Decompensation Risk</h3>
                 <div class="value">{tmeld_label}</div>
-                <div class="sub">{'14-Day Risk: ' + f'{tmeld_prob:.1%}' if tmeld_ran else 'No EHR uploaded'}</div>
+                <div class="sub">{'14-Day probability: ' + f'{tmeld_prob:.1%}' if tmeld_ran else 'No lab data uploaded'}</div>
             </div>
             """, unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # Recommendation
-        st.markdown("### Clinical Recommendation")
-        st.markdown(f'<div class="rec-box">{rec["recommendation"]}</div>', unsafe_allow_html=True)
-
-        st.markdown("### Recommended Actions")
+        # -- RECOMMENDED ACTIONS --
+        st.markdown('<div class="section-label">MANAGEMENT PLAN</div>', unsafe_allow_html=True)
         for a in rec["actions"]:
-            st.markdown(f'<div class="action-item">-> {a}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="action-item">\u2022 {a}</div>', unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # Grad-CAM + Probabilities
+        # -- DIAGNOSTIC RESULTS --
+        st.markdown('<div class="section-label">DIAGNOSTIC FINDINGS</div>', unsafe_allow_html=True)
         col_cam, col_prob = st.columns(2)
         with col_cam:
-            st.markdown("### Grad-CAM Explainability")
+            st.markdown("**Ultrasound Analysis**")
             if gradcam_img is not None:
-                st.image(gradcam_img, caption=f"Grad-CAM: {vision_stage} ({vision_conf:.1%})",
+                st.image(gradcam_img, caption=f"Fibrosis stage: {vision_stage}  |  Confidence: {vision_conf:.1%}",
                          use_container_width=True)
             else:
-                st.info("Upload an ultrasound image to see Grad-CAM heatmap.")
+                st.info("Upload an ultrasound image to view the analysis.")
 
         with col_prob:
-            st.markdown("### Stage Probabilities")
+            st.markdown("**Stage Likelihood**")
             if vision_probs:
                 stages = list(vision_probs.keys())
                 values = list(vision_probs.values())
                 colors = ["#22c55e", "#84cc16", "#eab308", "#f97316", "#ef4444"]
-                fig, ax = plt.subplots(figsize=(6, 4))
-                bars = ax.barh(stages, values, color=colors, edgecolor="white", linewidth=1.5)
+                fig, ax = plt.subplots(figsize=(5.5, 3.5))
+                bars = ax.barh(stages, values, color=colors, edgecolor="white", linewidth=1.2)
                 ax.set_xlim(0, 1)
-                ax.set_xlabel("Probability", fontsize=12)
+                ax.set_xlabel("Probability")
                 ax.invert_yaxis()
                 for bar, val in zip(bars, values):
                     ax.text(bar.get_width() + 0.02, bar.get_y() + bar.get_height()/2,
-                            f"{val:.1%}", va="center", fontsize=11, fontweight="bold")
+                            f"{val:.1%}", va="center", fontsize=10, fontweight="bold")
                 ax.spines["top"].set_visible(False)
                 ax.spines["right"].set_visible(False)
                 plt.tight_layout()
                 st.pyplot(fig)
                 plt.close(fig)
             elif tmeld_ran:
-                # Show t-MELD risk gauge instead
-                fig, ax = plt.subplots(figsize=(6, 4))
-                color = "#ef4444" if tmeld_prob >= 0.5 else ("#eab308" if tmeld_prob >= 0.2 else "#22c55e")
-                ax.barh(["14-Day\nDecompensation"], [tmeld_prob], color=color, height=0.5)
+                fig, ax = plt.subplots(figsize=(5.5, 2.5))
+                color = "#dc2626" if tmeld_prob >= 0.5 else ("#eab308" if tmeld_prob >= 0.2 else "#14b8a6")
+                ax.barh(["14-Day\nDecompensation\nRisk"], [tmeld_prob], color=color, height=0.35)
                 ax.set_xlim(0, 1)
-                ax.set_xlabel("Calibrated Probability")
-                ax.text(tmeld_prob + 0.03, 0, f"{tmeld_prob:.1%}", va="center", fontsize=14, fontweight="bold")
+                ax.set_xlabel("Risk Score")
+                ax.text(tmeld_prob + 0.03, 0, f"{tmeld_prob:.1%}", va="center", fontsize=12, fontweight="bold")
                 ax.spines["top"].set_visible(False)
                 ax.spines["right"].set_visible(False)
                 plt.tight_layout()
                 st.pyplot(fig)
                 plt.close(fig)
+
+        # -- LAB TRENDS + BIOMARKER ANALYSIS --
+        if tmeld_ran:
+            st.markdown('<div class="section-label">LABORATORY TRENDS</div>', unsafe_allow_html=True)
+            col_trends, col_shap = st.columns(2)
+            
+            with col_trends:
+                st.markdown("**Serial Lab Values (Normalized)**")
+                labs_avail = False
+                if 'lab_test_name' in df_ehr.columns:
+                    plot_df = df_ehr.copy()
+                    plot_df['charttime'] = pd.to_datetime(plot_df['charttime'])
+                    plot_df = plot_df.pivot_table(index='charttime', columns='lab_test_name', values='valuenum')
+                    labs_avail = True
+                elif df_ehr is not None:
+                    plot_df = df_ehr.copy()
+                    plot_df['charttime'] = pd.to_datetime(plot_df.get('charttime', plot_df.index))
+                    plot_df.set_index('charttime', inplace=True)
+                    labs_avail = True
+                
+                cols_to_plot = [c for c in TARGET_TESTS if c in plot_df.columns] if labs_avail else []
+                if cols_to_plot:
+                    fig, ax = plt.subplots(figsize=(7, 4))
+                    for c in cols_to_plot:
+                        series = plot_df[c].dropna()
+                        if not series.empty:
+                            ax.plot(series.index, series / series.max(), marker='o', label=c, linewidth=1.5)
+                    ax.set_title("Lab Trends (Normalized)")
+                    ax.legend(fontsize=9)
+                    plt.xticks(rotation=45)
+                    plt.tight_layout()
+                    st.pyplot(fig)
+                    plt.close(fig)
+                else:
+                    st.info("Serial lab data not available for plotting.")
+
+            with col_shap:
+                st.markdown("**Key Risk Drivers**")
+                try:
+                    import shap
+                    
+                    base_model = tmeld_model
+                    if hasattr(tmeld_model, 'estimator'):
+                        base_model = tmeld_model.estimator
+                        if hasattr(base_model, 'estimator'):
+                            base_model = base_model.estimator
+                    elif hasattr(tmeld_model, 'calibrated_classifiers_'):
+                        base_model = tmeld_model.calibrated_classifiers_[0].estimator
+                        if hasattr(base_model, 'estimator'):
+                            base_model = base_model.estimator
+
+                    explainer = shap.TreeExplainer(base_model)
+                    shap_values = explainer.shap_values(X_final)
+                    
+                    fig, ax = plt.subplots(figsize=(7, 4))
+                    if isinstance(shap_values, list):
+                        sv = shap_values[1][0]
+                        base_val = explainer.expected_value[1]
+                    else:
+                        sv = shap_values[0]
+                        base_val = explainer.expected_value
+                    
+                    shap.plots._waterfall.waterfall_legacy(base_val, sv, feature_names=X_final.columns.tolist(), max_display=10, show=False)
+                    plt.tight_layout()
+                    st.pyplot(fig)
+                    plt.close(fig)
+                except Exception as e:
+                    st.error(f"Risk factor analysis unavailable: {e}")
+

@@ -133,10 +133,10 @@ def run_clinical_expert(blood_data: dict, clinical_model) -> dict:
     risk_idx = int(np.argmax(prob))
     risk_prob = float(prob[risk_idx]) if prob.ndim == 1 else float(prob[1]) if prob.shape[1] == 2 else float(prob[risk_idx])
 
-    # For binary: use positive class probability
+    # For binary: use positive class probability (threshold adjusted for 2.5% base rate)
     if len(prob) == 2:
         risk_prob = float(prob[1])
-        risk_label = "HIGH" if risk_prob >= 0.5 else ("MODERATE" if risk_prob >= 0.2 else "LOW")
+        risk_label = "HIGH" if risk_prob >= 0.05 else ("MODERATE" if risk_prob >= 0.025 else "LOW")
     else:
         risk_label = f"CLASS_{risk_idx}"
 
@@ -180,7 +180,7 @@ def run_temporal_expert(blood_data: dict, temporal_model) -> dict:
         if top_idx < len(expected):
             failing_point = expected[top_idx]
 
-    trend_label = "DECLINING" if trend_risk >= 0.5 else ("WATCHFUL" if trend_risk >= 0.2 else "STABLE")
+    trend_label = "DECLINING" if trend_risk >= 0.05 else ("WATCHFUL" if trend_risk >= 0.025 else "STABLE")
 
     return {"trend_risk": trend_risk, "trend_label": trend_label,
             "failing_point": failing_point, "error": None}
@@ -208,6 +208,28 @@ def integration_engine(vision_result: dict, clinical_result: dict,
     trend_label = temporal_result.get("trend_label", "UNAVAILABLE")
     trend_risk = temporal_result.get("trend_risk", 0.0)
     failing_point = temporal_result.get("failing_point", "Unknown")
+
+    # --- ANOMALY: Acute Liver Failure (ALF) Suspected ---
+    # F0 (healthy liver) but skyrocketing lab risk
+    if stage == "F0" and (risk_label == "HIGH" or trend_label == "DECLINING"):
+        return {
+            "severity_level": "CRITICAL",
+            "recommendation": (
+                f"SEVERE DISCORDANCE (ALF SUSPECTED): Vision shows healthy liver "
+                f"({stage}, {stage_conf:.0%}), but clinical risk is {risk_label} "
+                f"({risk_prob:.0%}) with {trend_label} trajectory. "
+                f"Primary anomaly: {failing_point}. "
+                "WARNING: Rule out Acute Liver Failure (e.g., acetaminophen toxicity, "
+                "acute viral hepatitis, ischemic hepatopathy). Immediate STAT labs required."
+            ),
+            "actions": [
+                "STAT liver function panel and coagulation profile",
+                "Rule out acetaminophen toxicity (NAC protocol)",
+                "Immediate inpatient admission (ICU monitoring)",
+                "Urgent hepatology consultation",
+            ],
+            "color_code": "red",
+        }
 
     # --- CRITICAL: F3/F4 with high clinical risk ---
     if stage in ("F4",) and risk_label == "HIGH":

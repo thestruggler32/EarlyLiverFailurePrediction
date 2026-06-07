@@ -25,10 +25,10 @@ except ImportError:
     print("[WARN] pytorch-grad-cam not installed. Grad-CAM XAI will be disabled.")
     print("       Install with: pip install grad-cam")
 
-DATA_DIR        = "./Dataset"
+DATA_DIR        = "./Ultrasonic_dataset/Dataset/Dataset"
 IMG_SIZE        = 224
 BATCH_SIZE      = 32
-NUM_EPOCHS      = 25
+NUM_EPOCHS      = 35
 LR              = 1e-4
 NUM_CLASSES     = 5          # F0, F1, F2, F3, F4
 NUM_DOMAINS     = 2          # source (train) vs target (val) -- pseudo-domains
@@ -91,11 +91,11 @@ def build_dataloaders(data_dir: str, val_split: float = 0.2):
 
     train_loader = DataLoader(
         train_dataset, batch_size=BATCH_SIZE, sampler=sampler,
-        num_workers=2, pin_memory=True,
+        num_workers=0, pin_memory=True,
     )
     val_loader = DataLoader(
         val_dataset, batch_size=BATCH_SIZE, shuffle=False,
-        num_workers=2, pin_memory=True,
+        num_workers=0, pin_memory=True,
     )
 
     print(f"[DATA] Train: {train_size} | Val: {val_size}")
@@ -163,9 +163,9 @@ class HepSenseDANN(nn.Module):
     def __init__(self, num_classes: int = 5, num_domains: int = 2):
         super().__init__()
 
-        # --- Backbone: EfficientNet-B0 ---
-        backbone = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
-        feat_dim = backbone.classifier[1].in_features   # 1280
+        # --- Backbone: DenseNet121 ---
+        backbone = models.densenet121(weights=models.DenseNet121_Weights.DEFAULT)
+        feat_dim = backbone.classifier.in_features
         backbone.classifier = nn.Identity()              # strip original head
         self.feature_extractor = backbone
 
@@ -331,6 +331,39 @@ def train_model(data_dir: str = DATA_DIR, num_epochs: int = NUM_EPOCHS):
     model.load_state_dict(best_model_wts)
     torch.save(model.state_dict(), MODEL_SAVE_PATH)
     print(f"\n[SAVED] Best model (Val Acc={best_val_acc:.4f}) -> {MODEL_SAVE_PATH}")
+    
+    # Generate Confusion Matrix & Metrics
+    model.eval()
+    all_preds = []
+    all_labels = []
+    with torch.no_grad():
+        for images, labels in val_loader:
+            images = images.to(DEVICE)
+            stage_logits, _ = model(images, alpha=1.0)
+            all_preds.extend(stage_logits.argmax(1).cpu().numpy())
+            all_labels.extend(labels.numpy())
+            
+    from sklearn.metrics import classification_report, confusion_matrix
+    print("\n--- Final Validation Metrics ---")
+    print(classification_report(all_labels, all_preds, target_names=class_names))
+    
+    cm = confusion_matrix(all_labels, all_preds)
+    fig, ax = plt.subplots(figsize=(8, 6))
+    cax = ax.matshow(cm, cmap='Blues')
+    fig.colorbar(cax)
+    ax.set_xticks(np.arange(len(class_names)))
+    ax.set_yticks(np.arange(len(class_names)))
+    ax.set_xticklabels(class_names)
+    ax.set_yticklabels(class_names)
+    ax.set_xlabel('Predicted Stage')
+    ax.set_ylabel('True Stage')
+    ax.set_title('Vision Model Confusion Matrix')
+    for (i, j), z in np.ndenumerate(cm):
+        ax.text(j, i, str(z), ha='center', va='center', color='black' if z < cm.max()/2 else 'white')
+    plt.savefig('vision_confusion_matrix.png', dpi=300)
+    plt.close()
+    print("Saved -> vision_confusion_matrix.png")
+
     return model
 
 
